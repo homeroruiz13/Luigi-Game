@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Luigi Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #222;
+        }
+        #gameCanvas {
+            background-color: #80ffff;
+            border: 2px solid black;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="540"></canvas>
+    
+    <!-- Images preload (hidden) -->
+    <div class="hidden">
+        <img id="img-luigi1" src="images/luigi1.png">
+        <img id="img-luigi2" src="images/luigi2.png">
+        <img id="img-luigi3" src="images/luigi3.png">
+        <img id="img-luigi4" src="images/luigi4.png">
+        <img id="img-luigi5" src="images/luigi5.png">
+        <img id="img-brick" src="images/Brick.png">
+        <img id="img-ground" src="images/Ground.png">
+        <img id="img-goomba" src="images/goomba.png">
+        <img id="img-goomba-fire" src="images/goomba_fire.png">
+        <img id="img-mushroom" src="images/mushroom.png">
+        <img id="img-fireball" src="images/fireball.png">
+        <img id="img-drybones1" src="images/drybones1.png">
+        <img id="img-drybones2" src="images/drybones2.png">
+        <img id="img-drybones3" src="images/drybones3.png">
+        <img id="img-drybones4" src="images/drybones4.png">
+        <img id="img-drybones5" src="images/drybones5.png">
+        <img id="img-drybones6" src="images/drybones6.png">
+        <img id="img-drybones7" src="images/drybones7.png">
+        <img id="img-drybones8" src="images/drybones8.png">
+        <img id="img-drybones9" src="images/drybones9.png">
+        <img id="img-drybones10" src="images/drybones10.png">
+        <img id="img-drybones11" src="images/drybones11.png">
+    </div>
+
+    <script>
+        // Game constants
+        const WORLD_WIDTH = 3000;
+        const WORLD_HEIGHT = 540;
+        const VIEW_WIDTH = 800;
+        const VIEW_HEIGHT = 540;
+        const GROUND_LEVEL = 450;
+
+        // Base Sprite class
+        class Sprite {
+            constructor(x, y, width, height) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.prevX = x;
+                this.prevY = y;
+                this.removeFlag = false;
+            }
+
+            storePreviousPosition() {
+                this.prevX = this.x;
+                this.prevY = this.y;
+            }
+
+            isCollidingWith(other) {
+                if (other === this) return false;
+
+                const thisLeft = this.x;
+                const thisRight = this.x + this.width;
+                const thisTop = this.y;
+                const thisBottom = this.y + this.height;
+
+                const otherLeft = other.x;
+                const otherRight = other.x + other.width;
+                const otherTop = other.y;
+                const otherBottom = other.y + other.height;
+
+                return !(
+                    thisRight < otherLeft ||
+                    thisLeft > otherRight ||
+                    thisBottom < otherTop ||
+                    thisTop > otherBottom
+                );
+            }
+
+            containsPoint(pointX, pointY) {
+                return (
+                    pointX >= this.x && pointX <= this.x + this.width &&
+                    pointY >= this.y && pointY <= this.y + this.height
+                );
+            }
+
+            shouldRemove() {
+                return this.removeFlag;
+            }
+
+            setRemoveFlag(flag) {
+                this.removeFlag = flag;
+            }
+
+            update() {
+                // To be overridden by subclasses
+            }
+
+            draw(ctx, scrollPosX) {
+                // To be overridden by subclasses
+            }
+
+            handleCollision(other) {
+                // To be overridden by subclasses
+            }
+
+            // Method to convert this sprite to JSON for saving
+            toJSON() {
+                return {
+                    x: this.x,
+                    y: this.y,
+                    w: this.width,
+                    h: this.height,
+                    type: this.constructor.name.toLowerCase()
+                };
+            }
+        }
+
+        // Brick class
+        class Brick extends Sprite {
+            constructor(x, y) {
+                super(x, y, 35, 35);
+                this.image = document.getElementById('img-brick');
+            }
+
+            update() {
+                // Bricks don't move or change
+            }
+
+            draw(ctx, scrollPosX) {
+                ctx.drawImage(this.image, this.x - scrollPosX, this.y, this.width, this.height);
+            }
+
+            handleCollision(other) {
+                // Handled by other sprites
+            }
+
+            toJSON() {
+                return {
+                    ...super.toJSON(),
+                    type: "brick"
+                };
+            }
+
+            static fromJSON(obj) {
+                return new Brick(obj.x, obj.y);
+            }
+        }
+
+        // Goomba class
+        class Goomba extends Sprite {
+            constructor(x, y) {
+                super(x, y, 35, 35);
+                this.direction = 1;
+                this.SPEED = 2;
+                this.frameCounter = 0;
+                this.isBurning = false;
+                this.burnCounter = 0;
+                this.BURN_DURATION = 10;
+                this.image = document.getElementById('img-goomba');
+                this.fireImage = document.getElementById('img-goomba-fire');
+            }
+
+            update() {
+                if (this.isBurning) {
+                    this.burnCounter++;
+                    if (this.burnCounter >= this.BURN_DURATION) {
+                        this.setRemoveFlag(true);
+                    }
+                } else {
+                    this.x += this.SPEED * this.direction;
+                    this.frameCounter++;
+
+                    // Apply gravity
+                    if (this.y < GROUND_LEVEL) {
+                        this.y += 5;
+                    }
+                    // Stop at ground level
+                    if (this.y > GROUND_LEVEL) {
+                        this.y = GROUND_LEVEL;
+                    }
+                }
+            }
+
+            draw(ctx, scrollPosX) {
+                if (this.isBurning) {
+                    ctx.drawImage(this.fireImage, this.x - scrollPosX, this.y, this.width, this.height);
+                } else {
+                    ctx.drawImage(this.image, this.x - scrollPosX, this.y, this.width, this.height);
+                }
+            }
+
+            handleCollision(other) {
+                if (other instanceof Brick) {
+                    // Reverse direction when hitting a brick
+                    this.direction *= -1;
+
+                    // Move out of the brick
+                    if (this.direction > 0) {
+                        this.x = other.x + other.width;
+                    } else {
+                        this.x = other.x - this.width;
+                    }
+                } else if (other instanceof Fireball) {
+                    // Start burning when hit by fireball
+                    this.setOnFire();
+                }
+            }
+
+            setOnFire() {
+                this.isBurning = true;
+                this.burnCounter = 0;
+            }
+
+            toJSON() {
+                return {
+                    ...super.toJSON(),
+                    direction: this.direction,
+                    frameCounter: this.frameCounter,
+                    isBurning: this.isBurning,
+                    burnCounter: this.burnCounter,
+                    type: "goomba"
+                };
+            }
+
+            static fromJSON(obj) {
+                const goomba = new Goomba(obj.x, obj.y);
+                goomba.direction = obj.direction;
+                goomba.frameCounter = obj.frameCounter;
+                goomba.isBurning = obj.isBurning;
+                goomba.burnCounter = obj.burnCounter;
+                return goomba;
+            }
+        }
+
+        // DryBones class
+        class DryBones extends Sprite {
+            constructor(x, y) {
+                super(x, y, 40, 40);
+                this.direction = 1;
+                this.SPEED = 2;
+                this.currentFrame = 0;
+                this.frameCounter = 0;
+                this.state = "WALKING"; // WALKING, COLLAPSED, REANIMATING
+                this.stateCounter = 0;
+                this.COLLAPSE_DURATION = 50;
+                this.images = [];
+                
+                // Load all 11 frames
+                for (let i = 1; i <= 11; i++) {
+                    this.images.push(document.getElementById(`img-drybones${i}`));
+                }
+            }
+
+            update() {
+                switch (this.state) {
+                    case "WALKING":
+                        // Move in current direction
+                        this.x += this.SPEED * this.direction;
+                        
+                        // Update animation
+                        this.frameCounter++;
+                        if (this.frameCounter >= 5) {
+                            this.currentFrame = (this.currentFrame + 1) % 10; // Use only frames 0-9 for walking
+                            this.frameCounter = 0;
+                        }
+                        
+                        // Apply gravity
+                        if (this.y < GROUND_LEVEL) {
+                            this.y += 5;
+                        }
+                        // Stop at ground level
+                        if (this.y > GROUND_LEVEL) {
+                            this.y = GROUND_LEVEL;
+                        }
+                        break;
+                        
+                    case "COLLAPSED":
+                        // Stay collapsed
+                        this.stateCounter++;
+                        if (this.stateCounter >= this.COLLAPSE_DURATION) {
+                            // Start reanimating
+                            this.state = "REANIMATING";
+                            this.stateCounter = 0;
+                        }
+                        break;
+                        
+                    case "REANIMATING":
+                        // Get up animation
+                        this.stateCounter++;
+                        if (this.stateCounter >= 10) {
+                            // Return to walking state
+                            this.state = "WALKING";
+                            this.stateCounter = 0;
+                        }
+                        break;
+                }
+            }
+
+            draw(ctx, scrollPosX) {
+                if (this.state === "COLLAPSED" || this.state === "REANIMATING") {
+                    // Use the 11th frame (index 10) for collapsed state
+                    ctx.drawImage(this.images[10], this.x - scrollPosX, this.y, this.width, this.height);
+                } else {
+                    // Draw walking DryBones animation
+                    const currentImage = this.images[this.currentFrame];
+                    if (this.direction > 0) {
+                        // Draw facing right
+                        ctx.drawImage(currentImage, this.x - scrollPosX, this.y, this.width, this.height);
+                    } else {
+                        // Draw facing left (flip the image)
+                        ctx.save();
+                        ctx.scale(-1, 1);
+                        ctx.drawImage(currentImage, -(this.x - scrollPosX + this.width), this.y, this.width, this.height);
+                        ctx.restore();
+                    }
+                }
+            }
+
+            handleCollision(other) {
+                if (other instanceof Brick) {
+                    // Reverse direction when hitting a brick
+                    this.direction *= -1;
+                    
+                    // Move out of the brick
+                    if (this.direction > 0) {
+                        this.x = other.x + other.width;
+                    } else {
+                        this.x = other.x - this.width;
+                    }
+                } else if (other instanceof Fireball || other instanceof Luigi) {
+                    // Collapse when hit by fireball or Luigi
+                    if (this.state === "WALKING") {
+                        this.collapse();
+                    }
+                }
+            }
+            
+            collapse() {
+                this.state = "COLLAPSED";
+                this.stateCounter = 0;
+            }
+
+            toJSON() {
+                return {
+                    ...super.toJSON(),
+                    direction: this.direction,
+                    currentFrame: this.currentFrame,
+                    frameCounter: this.frameCounter,
+                    currentState: this.state,
+                    stateCounter: this.stateCounter,
+                    type: "drybones"
+                };
+            }
+
+            static fromJSON(obj) {
+                const dryBones = new DryBones(obj.x, obj.y);
+                dryBones.direction = obj.direction;
+                dryBones.currentFrame = obj.currentFrame;
+                dryBones.frameCounter = obj.frameCounter;
+                dryBones.state = obj.currentState || "WALKING";
+                dryBones.stateCounter = obj.stateCounter || 0;
+                return dryBones;
+            }
+        }
+
+        // Mushroom class
+        class Mushroom extends Sprite {
+            constructor(x, y) {
+                super(x, y, 30, 30);
+                this.direction = 1;
+                this.SPEED = 2;
+                this.vertVelocity = 0;
+                this.image = document.getElementById('img-mushroom');
+            }
+
+            update() {
+                // Move horizontally
+                this.x += this.SPEED * this.direction;
+                
+                // Apply gravity
+                this.vertVelocity += 0.5;
+                this.y += this.vertVelocity;
+                
+                // Stop at ground level
+                if (this.y > GROUND_LEVEL) {
+                    this.y = GROUND_LEVEL;
+                    this.vertVelocity = 0;
+                }
+            }
+
+            draw(ctx, scrollPosX) {
+                ctx.drawImage(this.image, this.x - scrollPosX, this.y, this.width, this.height);
+            }
+
+            handleCollision(other) {
+                if (other instanceof Brick) {
+                    // Sit on top of brick (collision fixing in y-direction)
+                    if (this.vertVelocity > 0 && this.prevY + this.height <= other.y + 5) {
+                        this.y = other.y - this.height;
+                        this.vertVelocity = 0;
+                    }
+                } else if (other instanceof Luigi) {
+                    // Get eaten by Luigi
+                    this.setRemoveFlag(true);
+                }
+            }
+
+            toJSON() {
+                return {
+                    ...super.toJSON(),
+                    direction: this.direction,
+                    vertVelocity: this.vertVelocity,
+                    type: "mushroom"
+                };
+            }
+
+            static fromJSON(obj) {
+                const mushroom = new Mushroom(obj.x, obj.y);
+                mushroom.direction = obj.direction;
+                mushroom.vertVelocity = obj.vertVelocity;
+                return mushroom;
+            }
+        }
+
+        // Fireball class
+        class Fireball extends Sprite {
+            constructor(x, y, facingRight) {
+                super(x, y, 20, 20);
+                this.direction = facingRight ? 1 : -1;
+                this.SPEED = 8;
+                this.vertVelocity = -4.0;
+                this.GRAVITY = 0.8;
+                this.BOUNCE_FACTOR = -0.7;
+                this.image = document.getElementById('img-fireball');
+            }
+
+            update() {
+                // Move horizontally
+                this.x += this.SPEED * this.direction;
+                
+                // Apply gravity and update vertical position
+                this.vertVelocity += this.GRAVITY;
+                this.y += this.vertVelocity;
+                
+                // Bounce off the ground
+                if (this.y > GROUND_LEVEL) {
+                    this.y = GROUND_LEVEL; // Keep at ground level
+                    this.vertVelocity *= this.BOUNCE_FACTOR; // Reverse direction and reduce velocity
+                }
+                
+                // Remove if it goes off-screen
+                if (this.x < -this.width || this.x > WORLD_WIDTH) {
+                    this.setRemoveFlag(true);
+                }
+            }
+
+            draw(ctx, scrollPosX) {
+                ctx.drawImage(this.image, this.x - scrollPosX, this.y, this.width, this.height);
+            }
+
+            handleCollision(other) {
+                // Fireball is consumed when it hits DryBones or Goomba
+                if (other instanceof DryBones || other instanceof Goomba) {
+                    this.setRemoveFlag(true);
+                }
+            }
+
+            toJSON() {
+                return {
+                    ...super.toJSON(),
+                    direction: this.direction,
+                    vertVelocity: this.vertVelocity,
+                    type: "fireball"
+                };
+            }
+
+            static fromJSON(obj) {
+                const fireball = new Fireball(obj.x, obj.y, obj.direction > 0);
+                fireball.vertVelocity = obj.vertVelocity;
+                return fireball;
+            }
+        }
+
+        // Luigi class
+        class Luigi extends Sprite {
+            constructor(x, y, model) {
+                super(x || 100, y || 400, 50, 50);
+                this.model = model;
+                this.isMoving = false;
+                this.facingRight = true;
+                this.speed = 5;
+                this.vertVelocity = 0;
+                this.framesInAir = 0;
+                this.currentFrame = 0;
+                this.isBig = false;
+                this.fireballCooldown = 0;
+                this.FIREBALL_COOLDOWN_MAX = 10;
+                this.images = [];
+                
+                // Load images
+                for (let i = 1; i <= 5; i++) {
+                    this.images.push(document.getElementById(`img-luigi${i}`));
+                }
+            }
+
+            update() {
+                // Update fireball cooldown
+                if (this.fireballCooldown > 0) {
+                    this.fireballCooldown--;
+                }
+                
+                this.vertVelocity += 1.2; // Acceleration
+                this.y += this.vertVelocity; // Update gravity
+                
+                // Updates frames
+                this.framesInAir++;
+                
+                // Stop Luigi from falling
+                if (this.y > GROUND_LEVEL) {
+                    this.vertVelocity = 0.0;
+                    this.y = GROUND_LEVEL; // snap back to the ground
+                    this.framesInAir = 0;
+                }
+            }
+
+            draw(ctx, scrollPosX) {
+                let luigiImage;
+                if (this.isMoving) {
+                    luigiImage = this.images[this.currentFrame];
+                } else {
+                    luigiImage = this.images[0];
+                }
+
+                const luigiX = this.x - scrollPosX;
+                
+                // Scale images when Luigi is big
+                const drawWidth = this.isBig ? this.width * 2 : this.width;
+                const drawHeight = this.isBig ? this.height * 2 : this.height;
+                const adjustedY = this.isBig ? this.y - this.height : this.y;
+
+                if (this.facingRight) {
+                    ctx.drawImage(luigiImage, luigiX, adjustedY, drawWidth, drawHeight);
+                } else {
+                    // Flip the image horizontally if Luigi is facing left
+                    ctx.save();
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(luigiImage, -(luigiX + drawWidth), adjustedY, drawWidth, drawHeight);
+                    ctx.restore();
+                }
+            }
+
+            jump() {
+                if (this.framesInAir < 5) { // Only allow jumping if recently on ground
+                    this.vertVelocity -= 5.0; // Upward acceleration
+                }
+            }
+
+            moveLeft() {
+                if (this.x > 0) {
+                    this.x -= this.speed;
+                }
+                this.facingRight = false;
+                this.isMoving = true;
+                this.updateAnimationFrame();
+            }
+
+            moveRight() {
+                if (this.x < WORLD_WIDTH - this.width) {
+                    this.x += this.speed;
+                }
+                this.facingRight = true;
+                this.isMoving = true;
+                this.updateAnimationFrame();
+            }
+
+            stopMoving() {
+                this.isMoving = false;
+                this.currentFrame = 0;
+            }
+
+            throwFireball() {
+                if (this.fireballCooldown <= 0) {
+                    // Calculate fireball starting position based on Luigi's position and facing
+                    const fireballX = this.facingRight ? this.x + this.width : this.x - 20;
+                    const fireballY = this.isBig ? this.y - this.height/2 : this.y + this.height/4; // Adjust for Luigi's size
+                    
+                    // Create and add the fireball to the model
+                    const fireball = new Fireball(fireballX, fireballY, this.facingRight);
+                    this.model.addSprite(fireball);
+                    
+                    // Set cooldown
+                    this.fireballCooldown = this.FIREBALL_COOLDOWN_MAX;
+                }
+            }
+
+            grow() {
+                // Toggle size between big and small
+                this.isBig = !this.isBig;
+                
+                if (this.isBig) {
+                    // Keep feet at same position when growing
+                    // Store the original feet position
+                    const feetY = this.y + this.height;
+                    
+                    // Set the new height (doubled)
+                    this.y = feetY - (this.height * 2);
+                } else {
+                    // Adjust position when shrinking
+                    // Store the original feet position
+                    const feetY = this.y + (this.height * 2);
+                    
+                    // Set the new height (normal)
+                    this.y = feetY - this.height;
+                }
+            }
+
+            updateAnimationFrame() {
+                if (this.currentFrame < 4) {
+                    this.currentFrame++;
+                } else {
+                    this.currentFrame = 0;
+                }
+            }
+
+            handleCollision(other) {
+                // Handle collision with Mushroom
+                if (other instanceof Mushroom) {
+                    this.grow();
+                    return; 
+                }
+                
+                // Get Luigi's dimensions from previous position
+                let luigiLeft = this.prevX;
+                let luigiRight = this.prevX + this.width;
+                let luigiTop = this.prevY;
+                let luigiBottom = this.prevY + this.height;
+                
+                // If Luigi is big, adjust his collision box
+                if (this.isBig) {
+                    luigiTop = this.prevY - this.height; // Adjust top for bigger Luigi
+                    luigiBottom = this.prevY + this.height; // Bottom stays the same (feet position)
+                }
+                
+                // Get other sprite's dimensions
+                const spriteLeft = other.x;
+                const spriteRight = other.x + other.width;
+                const spriteTop = other.y;
+                const spriteBottom = other.y + other.height;
+                
+                // Only do collision resolution with bricks
+                if (other instanceof Brick) {
+                    // Calculate overlap amounts in each direction
+                    const overlapLeft = luigiRight - spriteLeft;
+                    const overlapRight = spriteRight - luigiLeft;
+                    const overlapTop = luigiBottom - spriteTop;
+                    const overlapBottom = spriteBottom - luigiTop;
+                    
+                    // Find the minimum overlap direction
+                    const minOverlap = Math.min(
+                        Math.min(overlapLeft, overlapRight), 
+                        Math.min(overlapTop, overlapBottom)
+                    );
+                    
+                    // Resolve based on overlap direction
+                    if (minOverlap === overlapTop && this.vertVelocity >= 0) { 
+                        this.y = spriteTop - this.height; // Adjust for big Luigi
+                        if (this.isBig) this.y = spriteTop - 2 * this.height;
+                        this.vertVelocity = 0;
+                        this.framesInAir = 0;
+                    } 
+                    else if (minOverlap === overlapBottom && this.vertVelocity < 0) {
+                        this.y = spriteBottom;
+                        if (this.isBig) this.y = spriteBottom - this.height;
+                        this.vertVelocity = 0;
+                    }
+                    else if (minOverlap === overlapLeft) {
+                        this.x = spriteLeft - this.width;
+                    }
+                    else if (minOverlap === overlapRight) {
+                        this.x = spriteRight;
+                    }
+                }
+            }
+
+            toJSON() {
+                return {
+                    ...super.toJSON(),
+                    isMoving: this.isMoving,
+                    facingRight: this.facingRight,
+                    vertVelocity: this.vertVelocity,
+                    framesInAir: this.framesInAir,
+                    currentFrame: this.currentFrame,
+                    isBig: this.isBig,
+                    type: "luigi"
+                };
+            }
+
+            static fromJSON(obj, model) {
+                const luigi = new Luigi(obj.x, obj.y, model);
+                luigi.isMoving = obj.isMoving;
+                luigi.facingRight = obj.facingRight;
+                luigi.vertVelocity = obj.vertVelocity;
+                luigi.framesInAir = obj.framesInAir;
+                luigi.currentFrame = obj.currentFrame;
+                luigi.isBig = obj.isBig || false;
+                return luigi;
+            }
+        }
+
+        // Model class
+        class Model {
+            constructor() {
+                this.sprites = [];
+                this.luigi = new Luigi(100, 400, this);
+                this.sprites.push(this.luigi);
+                this.random = Math.random;
+                this.frameCounter = 0;
+                
+                // Initialize the items that can be added in edit mode
+                this.itemsICanAdd = [
+                    new Brick(0, 0),
+                    new Goomba(0, 0),
+                    new Mushroom(0, 0),
+                    new DryBones(0, 0)
+                ];
+                this.itemNum = 0;
+                
+                // Constants for random spawning
+                this.SPAWN_INTERVAL = 100;
+                this.GOOMBA_CHANCE = 0.5;
+                this.MUSHROOM_CHANCE = 0.3;
+                this.DRYBONES_CHANCE = 0.2;
+                
+                // Load the map
+                this.loadMap();
+                
+                // Add some initial sprites if map was not loaded
+                if (this.sprites.length <= 1) {
+                    this.addInitialSprites();
+                }
+            }
+            
+            addInitialSprites() {
+                // Add a few goombas
+                this.addSprite(new Goomba(300, GROUND_LEVEL));
+                this.addSprite(new Goomba(600, GROUND_LEVEL));
+                
+                // Add a mushroom
+                this.addSprite(new Mushroom(400, 400));
+                
+                // Add a dry bones
+                this.addSprite(new DryBones(800, GROUND_LEVEL));
+            }
+            
+            update() {
+                // Store previous positions for all sprites
+                for (const sprite of this.sprites) {
+                    sprite.storePreviousPosition();
+                }
+                
+                // Update all sprites
+                for (const sprite of this.sprites) {
+                    sprite.update();
+                }
+                
+                // Check and handle collisions
+                this.checkCollisions();
+                
+                // Remove sprites marked for removal
+                this.removeMarkedSprites();
+                
+                // Periodically spawn new sprites
+                this.frameCounter++;
+                if (this.frameCounter >= this.SPAWN_INTERVAL) {
+                    this.frameCounter = 0;
+                    this.spawnRandomSprite();
+                }
+            }
+            
+            checkCollisions() {
+                // Generic collision detection between all sprites
+                for (let i = 0; i < this.sprites.length; i++) {
+                    const sprite1 = this.sprites[i];
+                    for (let j = i + 1; j < this.sprites.length; j++) {
+                        const sprite2 = this.sprites[j];
+                        if (sprite1.isCollidingWith(sprite2)) {
+                            // Handle each sprite's collision response
+                            sprite1.handleCollision(sprite2);
+                            sprite2.handleCollision(sprite1);
+                        }
+                    }
+                }
+            }
+            
+            removeMarkedSprites() {
+                this.sprites = this.sprites.filter(sprite => 
+                    sprite === this.luigi || !sprite.shouldRemove()
+                );
+            }
+            
+            spawnRandomSprite() {
+                // Determine spawn position off-screen to the right
+                const spawnX = this.luigi.x + VIEW_WIDTH;
+                if (spawnX > WORLD_WIDTH - 100) return;
+                
+                const roll = Math.random();
+                if (roll < this.GOOMBA_CHANCE) {
+                    this.addSprite(new Goomba(spawnX, GROUND_LEVEL));
+                } else if (roll < this.GOOMBA_CHANCE + this.MUSHROOM_CHANCE) {
+                    this.addSprite(new Mushroom(spawnX, 400));
+                } else {
+                    this.addSprite(new DryBones(spawnX, GROUND_LEVEL));
+                }
+            }
+            
+            getLuigi() {
+                return this.luigi;
+            }
+            
+            getSprites() {
+                return this.sprites;
+            }
+            
+            addSprite(sprite) {
+                this.sprites.push(sprite);
+            }
+            
+            removeSprite(sprite) {
+                if (sprite !== this.luigi) {
+                    const index = this.sprites.indexOf(sprite);
+                    if (index !== -1) {
+                        this.sprites.splice(index, 1);
+                    }
+                }
+            }
+            
+            removeSpriteAt(x, y) {
+                const iterator = this.sprites.slice(); // Create a copy to safely iterate
+                for (const sprite of iterator) {
+                    if (sprite !== this.luigi && sprite.containsPoint(x, y)) {
+                        this.removeSprite(sprite);
+                        break;
+                    }
+                }
+            }
+            
+            clearAllBricks() {
+                this.sprites = this.sprites.filter(sprite => 
+                    sprite === this.luigi || !(sprite instanceof Brick || sprite instanceof Goomba || 
+                                              sprite instanceof Mushroom || sprite instanceof DryBones)
+                );
+            }
+            
+            getCurrentSelectedItem() {
+                return this.itemsICanAdd[this.itemNum];
+            }
+            
+            getItemNum() {
+                return this.itemNum;
+            }
+            
+            cycleSelectedItem() {
+                this.itemNum = (this.itemNum + 1) % this.itemsICanAdd.length;
+            }
+            
+            addCurrentSelectedSprite(x, y) {
+                const selected = this.itemsICanAdd[this.itemNum];
+                if (selected instanceof Brick) {
+                    this.addSprite(new Brick(x, y));
+                } else if (selected instanceof Goomba) {
+                    this.addSprite(new Goomba(x, y));
+                } else if (selected instanceof Mushroom) {
+                    this.addSprite(new Mushroom(x, y));
+                } else if (selected instanceof DryBones) {
+                    this.addSprite(new DryBones(x, y));
+                }
+            }
+            
+            removeCurrentSelectedSprite(x, y) {
+                const selected = this.itemsICanAdd[this.itemNum];
+                const iterator = this.sprites.slice(); // Create a copy to safely iterate
+                for (const sprite of iterator) {
+                    if (sprite !== this.luigi && sprite.containsPoint(x, y)) {
+                        if ((selected instanceof Brick && sprite instanceof Brick) ||
+                            (selected instanceof Goomba && sprite instanceof Goomba) ||
+                            (selected instanceof Mushroom && sprite instanceof Mushroom) ||
+                            (selected instanceof DryBones && sprite instanceof DryBones)) {
+                            this.removeSprite(sprite);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            saveMap() {
+                const mapData = {
+                    sprites: this.sprites.map(sprite => sprite.toJSON())
+                };
+                localStorage.setItem('luigiMap', JSON.stringify(mapData));
+            }
+            
+            loadMap() {
+                try {
+                    const mapData = localStorage.getItem('luigiMap');
+                    if (mapData) {
+                        this.loadFromJSON(JSON.parse(mapData));
+                    }
+                } catch (e) {
+                    console.error('Error loading map:', e);
+                }
+            }
+            
+            loadFromJSON(data) {
+                // Clear all sprites except Luigi
+                this.sprites = [];
+                
+                // Create a new Luigi instance
+                if (data.sprites) {
+                    for (const spriteData of data.sprites) {
+                        if (spriteData.type === 'luigi') {
+                            this.luigi = Luigi.fromJSON(spriteData, this);
+                            this.sprites.push(this.luigi);
+                        } else if (spriteData.type === 'brick') {
+                            this.sprites.push(Brick.fromJSON(spriteData));
+                        } else if (spriteData.type === 'goomba') {
+                            this.sprites.push(Goomba.fromJSON(spriteData));
+                        } else if (spriteData.type === 'mushroom') {
+                            this.sprites.push(Mushroom.fromJSON(spriteData));
+                        } else if (spriteData.type === 'drybones') {
+                            this.sprites.push(DryBones.fromJSON(spriteData));
+                        } else if (spriteData.type === 'fireball') {
+                            this.sprites.push(Fireball.fromJSON(spriteData));
+                        }
+                    }
+                }
+                
+                // If no Luigi was found, create a new one
+                if (!this.luigi) {
+                    this.luigi = new Luigi(100, 400, this);
+                    this.sprites.push(this.luigi);
+                }
+            }
+        }
+
+        // Controller class
+        class Controller {
+            constructor(model) {
+                this.model = model;
+                this.view = null;
+                this.keyRight = false;
+                this.keyLeft = false;
+                this.keyUp = false;
+                this.keyDown = false;
+                this.keyF = false;
+                this.keySpace = false;
+                
+                this.editMode = false;
+                this.addMapItem = true;
+                
+                this.SCROLL_SPEED = 5;
+                
+                // Bind event handlers
+                this.handleKeyDown = this.handleKeyDown.bind(this);
+                this.handleKeyUp = this.handleKeyUp.bind(this);
+                this.handleMouseDown = this.handleMouseDown.bind(this);
+                
+                // Add event listeners
+                window.addEventListener('keydown', this.handleKeyDown);
+                window.addEventListener('keyup', this.handleKeyUp);
+            }
+            
+            setView(view) {
+                this.view = view;
+                // Add mouse listener to canvas
+                view.canvas.addEventListener('mousedown', this.handleMouseDown);
+            }
+            
+            handleMouseDown(e) {
+                if (!this.editMode) {
+                    return; // Nothing is done while not in edit mode
+                }
+                
+                const rect = this.view.canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                if (mouseX < 100 && mouseY < 100) {
+                    // Click is in the editMode box, cycle through sprites
+                    this.model.cycleSelectedItem();
+                    return;
+                }
+                
+                // Click is outside the editMode box
+                if (this.addMapItem) {
+                    // Add sprite
+                    this.model.addCurrentSelectedSprite(mouseX + this.view.scrollPosX, mouseY);
+                } else {
+                    // Remove sprite
+                    this.model.removeCurrentSelectedSprite(mouseX + this.view.scrollPosX, mouseY);
+                }
+            }
+            
+            handleKeyDown(e) {
+                switch (e.key) {
+                    case 'ArrowRight':
+                        this.keyRight = true;
+                        break;
+                    case 'ArrowLeft':
+                        this.keyLeft = true;
+                        break;
+                    case 'ArrowUp':
+                        this.keyUp = true;
+                        break;
+                    case 'ArrowDown':
+                        this.keyDown = true;
+                        break;
+                    case ' ':
+                        this.keySpace = true;
+                        break;
+                    case 'f':
+                    case 'F':
+                        this.keyF = true;
+                        break;
+                }
+            }
+            
+            handleKeyUp(e) {
+                switch (e.key) {
+                    case 'ArrowRight':
+                        this.keyRight = false;
+                        break;
+                    case 'ArrowLeft':
+                        this.keyLeft = false;
+                        break;
+                    case 'ArrowUp':
+                        this.keyUp = false;
+                        break;
+                    case 'ArrowDown':
+                        // Throw fireball when down key is released
+                        this.model.getLuigi().throwFireball();
+                        this.keyDown = false;
+                        break;
+                    case ' ':
+                        this.keySpace = false;
+                        break;
+                    case 'f':
+                    case 'F':
+                        this.keyF = false;
+                        break;
+                    case 'Escape':
+                        // No exit function in web version
+                        break;
+                }
+                
+                // Check for lowercase keys
+                switch (e.key.toLowerCase()) {
+                    case 'q':
+                        // No exit function in web version
+                        break;
+                    case 'e':
+                        // Toggle edit mode
+                        this.editMode = !this.editMode;
+                        this.view.setEditMode(this.editMode);
+                        break;
+                    case 'a':
+                        // Set to add mode
+                        this.addMapItem = true;
+                        this.view.setAddMapItem(this.addMapItem);
+                        break;
+                    case 'r':
+                        // Set to remove mode
+                        this.addMapItem = false;
+                        this.view.setAddMapItem(this.addMapItem);
+                        break;
+                    case 'c':
+                        // Clear all bricks
+                        if (this.editMode) {
+                            this.model.clearAllBricks();
+                        }
+                        break;
+                    case 's':
+                        // Save Map
+                        if (this.editMode) {
+                            this.model.saveMap();
+                            alert('Map saved!');
+                        }
+                        break;
+                    case 'l':
+                        // Load Map
+                        if (this.editMode) {
+                            this.model.loadMap();
+                        }
+                        break;
+                }
+            }
+            
+            update() {
+                const luigi = this.model.getLuigi();
+                
+                // Handle movement based on keyboard state
+                if (this.keyRight) {
+                    luigi.moveRight();
+                } else if (this.keyLeft) {
+                    luigi.moveLeft();
+                } else {
+                    luigi.stopMoving();
+                }
+                
+                // Handle jumping
+                if (this.keySpace) {
+                    luigi.jump();
+                }
+                
+                // The F key can also throw fireballs
+                if (this.keyF) {
+                    luigi.throwFireball();
+                }
+            }
+            
+            isEditMode() {
+                return this.editMode;
+            }
+            
+            isAddMapItem() {
+                return this.addMapItem;
+            }
+        }
+
+        // View class
+        class View {
+            constructor(model) {
+                this.model = model;
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.editMode = false;
+                this.addMapItem = true;
+                this.scrollPosX = 0;
+                this.viewWidth = VIEW_WIDTH;
+                this.viewHeight = VIEW_HEIGHT;
+                this.groundImage = document.getElementById('img-ground');
+                this.useGroundImage = true;
+            }
+            
+            setEditMode(editMode) {
+                this.editMode = editMode;
+            }
+            
+            setAddMapItem(addMapItem) {
+                this.addMapItem = addMapItem;
+            }
+            
+            getScrollPosX() {
+                return this.scrollPosX;
+            }
+            
+            updateScrollPosition() {
+                const luigi = this.model.getLuigi();
+                const luigiX = luigi.x;
+                
+                // Center Luigi in view
+                let targetScrollX = luigiX - (this.viewWidth / 2);
+                
+                // Clamp to map boundaries
+                targetScrollX = Math.max(0, targetScrollX);
+                targetScrollX = Math.min(WORLD_WIDTH - this.viewWidth, targetScrollX);
+                
+                // Set scroll position
+                this.scrollPosX = targetScrollX;
+            }
+            
+            setScrollPosX(scrollPosX) {
+                // Prevent negative values
+                this.scrollPosX = Math.max(0, Math.min(WORLD_WIDTH - this.viewWidth, scrollPosX));
+            }
+            
+            render() {
+                this.updateScrollPosition();
+                
+                // Clear the canvas
+                this.ctx.fillStyle = 'rgb(128, 255, 255)'; // Cyan background
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Draw the ground
+                if (this.useGroundImage && this.groundImage) {
+                    // Draw ground using image for the whole world
+                    for (let x = 0; x < WORLD_WIDTH; x += this.groundImage.width) {
+                        this.ctx.drawImage(this.groundImage, x - this.scrollPosX, 500);
+                    }
+                }
+                
+                // Draw all sprites
+                const sprites = this.model.getSprites();
+                for (const sprite of sprites) {
+                    sprite.draw(this.ctx, this.scrollPosX);
+                }
+                
+                // Draw edit mode UI
+                if (this.editMode) {
+                    if (this.addMapItem) {
+                        this.ctx.fillStyle = 'rgba(0, 200, 0, 0.5)'; // Green for add mode
+                    } else {
+                        this.ctx.fillStyle = 'rgba(200, 0, 0, 0.5)'; // Red for remove mode
+                    }
+                    this.ctx.fillRect(0, 0, 100, 100);
+                    
+                    // Display the currently selected sprite in the editMode box
+                    const currentItem = this.model.getCurrentSelectedItem();
+                    
+                    // Calculate center position in the editMode box
+                    const centerX = 50 - currentItem.width / 2;
+                    const centerY = 50 - currentItem.height / 2;
+                    
+                    // Save the original position
+                    const originalX = currentItem.x;
+                    const originalY = currentItem.y;
+                    
+                    // Set the position for display
+                    currentItem.x = centerX + this.scrollPosX;
+                    currentItem.y = centerY;
+                    
+                    // Draw the sprite
+                    currentItem.draw(this.ctx, this.scrollPosX);
+                    
+                    // Restore the original position
+                    currentItem.x = originalX;
+                    currentItem.y = originalY;
+                    
+                    // Draw a label showing which type of sprite is selected
+                    this.ctx.fillStyle = 'black';
+                    let spriteName = "";
+                    if (currentItem instanceof Brick) spriteName = "Brick";
+                    else if (currentItem instanceof Goomba) spriteName = "Goomba";
+                    else if (currentItem instanceof Mushroom) spriteName = "Mushroom";
+                    else if (currentItem instanceof DryBones) spriteName = "DryBones";
+                    
+                    this.ctx.font = '16px Arial';
+                    this.ctx.fillText(spriteName, 10, 90);
+                }
+            }
+        }
+
+        // Game class
+        class Game {
+            constructor() {
+                this.model = new Model();
+                this.controller = new Controller(this.model);
+                this.view = new View(this.model);
+                this.controller.setView(this.view);
+                
+                this.lastTime = 0;
+                this.gameLoop = this.gameLoop.bind(this);
+            }
+            
+            start() {
+                requestAnimationFrame(this.gameLoop);
+            }
+            
+            gameLoop(timestamp) {
+                // Calculate deltaTime
+                const deltaTime = timestamp - this.lastTime;
+                this.lastTime = timestamp;
+                
+                // Update at a fixed rate (approximately 20 fps, same as Java version's 50ms)
+                if (deltaTime > 0) {
+                    // Update controller and model
+                    this.controller.update();
+                    this.model.update();
+                }
+                
+                // Render the game
+                this.view.render();
+                
+                // Continue the game loop
+                requestAnimationFrame(this.gameLoop);
+            }
+        }
+
+        // Start the game when the page loads
+        window.addEventListener('load', () => {
+            // Wait for images to load completely
+            const checkImagesLoaded = () => {
+                const images = document.querySelectorAll('img');
+                for (const img of images) {
+                    if (!img.complete) {
+                        // Try again in a moment
+                        setTimeout(checkImagesLoaded, 100);
+                        return;
+                    }
+                }
+                
+                // All images loaded, start the game
+                const game = new Game();
+                game.start();
+            };
+            
+            checkImagesLoaded();
+        });
+    </script>
+</body>
+</html>
